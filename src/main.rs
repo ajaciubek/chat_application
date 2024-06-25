@@ -33,7 +33,6 @@ struct Args {
 enum EventType {
     Init,
     Input(String),
-    Introduction((String, String)),
     Exit,
 }
 
@@ -43,7 +42,6 @@ async fn main() {
 
     // println!("Hello {}", *PEER_ID);
     let (init_sender, mut init_rcv) = mpsc::unbounded_channel();
-    let (response_sender, mut response_rcv) = mpsc::unbounded_channel();
     let (exit_sender, mut exit_rcv) = mpsc::unbounded_channel();
 
     ctrlc::set_handler(move || {
@@ -64,7 +62,7 @@ async fn main() {
         .multiplex(mplex::MplexConfig::new())
         .boxed();
 
-    let behaviour = AppBehaviour::new(response_sender, args.name.clone()).await;
+    let behaviour = AppBehaviour::new(args.name.clone()).await;
     let mut swarm = SwarmBuilder::new(transport, behaviour, *PEER_ID)
         .executor(Box::new(|fut| {
             spawn(fut);
@@ -91,9 +89,6 @@ async fn main() {
                 line = stdin.next_line() => {
                     Some(EventType::Input(line.expect("can get line").expect("can read line from sdin")))
                 },
-                response = response_rcv.recv() =>{
-                    Some(EventType::Introduction(response.expect("response exist")))
-                },
                 _init = init_rcv.recv()=>{
                     Some(EventType::Init)
                 },
@@ -110,9 +105,6 @@ async fn main() {
             match event {
                 EventType::Init => {
                     swarm.behaviour_mut().say_hello(args.name.clone(), true);
-                }
-                EventType::Introduction((name, receiver)) => {
-                    swarm.behaviour_mut().introduce(name, receiver);
                 }
                 EventType::Input(line) => {
                     swarm.behaviour_mut().chat(line);

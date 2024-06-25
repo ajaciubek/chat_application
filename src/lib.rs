@@ -8,7 +8,6 @@ use libp2p::{
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tokio::sync::mpsc;
 
 pub static KEYS: Lazy<identity::Keypair> = Lazy::new(identity::Keypair::generate_ed25519);
 pub static PEER_ID: Lazy<PeerId> = Lazy::new(|| PeerId::from(KEYS.public()));
@@ -37,8 +36,6 @@ pub struct AppBehaviour {
     pub mdns: Mdns,
     #[behaviour(ignore)]
     connected: HashMap<String, String>,
-    #[behaviour(ignore)]
-    reponse_sender: mpsc::UnboundedSender<(String, String)>,
     #[behaviour(ignore)]
     name: String,
 }
@@ -79,13 +76,7 @@ impl NetworkBehaviourEventProcess<FloodsubEvent> for AppBehaviour {
                 if resp.hello {
                     println!("{} has joined the chat", resp.name);
                     self.connected.insert(msg.source.to_string(), resp.name);
-
-                    if let Err(e) = self
-                        .reponse_sender
-                        .send((self.name.clone(), msg.source.to_string()))
-                    {
-                        print!("Error sending reposnse {}", e);
-                    }
+                    self.introduce(self.name.clone(), msg.source.to_string());
                 } else {
                     println!("{} has left the chat", resp.name);
                     self.connected.remove(&msg.source.to_string());
@@ -96,17 +87,13 @@ impl NetworkBehaviourEventProcess<FloodsubEvent> for AppBehaviour {
 }
 
 impl AppBehaviour {
-    pub async fn new(
-        reponse_sender: mpsc::UnboundedSender<(String, String)>,
-        name: String,
-    ) -> Self {
+    pub async fn new(name: String) -> Self {
         let mut behaviour = AppBehaviour {
             floodsub: Floodsub::new(*PEER_ID),
             mdns: Mdns::new(Default::default())
                 .await
                 .expect("cannot create mdns"),
             connected: HashMap::new(),
-            reponse_sender,
             name,
         };
         behaviour.floodsub.subscribe(CHAT_TOPIC.clone());
@@ -114,20 +101,18 @@ impl AppBehaviour {
     }
 
     pub fn say_hello(&mut self, name: String, hello: bool) {
-        let msg = SayHello { name, hello };
-        let json = serde_json::to_string(&msg).expect("can jsonify response");
-        // println!("Sending SayHello {}", json);
-        self.floodsub.publish(CHAT_TOPIC.clone(), json.as_bytes());
+        self.send(SayHello { name, hello });
     }
 
     pub fn chat(&mut self, message: String) {
-        let msg = ChatMessage { message };
-        let json = serde_json::to_string(&msg).expect("can jsonify response");
-        self.floodsub.publish(CHAT_TOPIC.clone(), json.as_bytes());
+        self.send(ChatMessage { message });
     }
 
     pub fn introduce(&mut self, name: String, receiver: String) {
-        let msg = IntroduceMyself { name, receiver };
+        self.send(IntroduceMyself { name, receiver });
+    }
+
+    fn send(&mut self, msg: impl serde::ser::Serialize) {
         let json = serde_json::to_string(&msg).expect("can jsonify response");
         self.floodsub.publish(CHAT_TOPIC.clone(), json.as_bytes());
     }
