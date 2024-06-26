@@ -39,7 +39,6 @@ pub struct AppBehaviour {
     #[behaviour(ignore)]
     name: String,
 }
-
 impl NetworkBehaviourEventProcess<MdnsEvent> for AppBehaviour {
     fn inject_event(&mut self, event: MdnsEvent) {
         match event {
@@ -70,6 +69,7 @@ impl NetworkBehaviourEventProcess<FloodsubEvent> for AppBehaviour {
                 };
             } else if let Ok(resp) = serde_json::from_slice::<IntroduceMyself>(&msg.data) {
                 if resp.receiver == (*PEER_ID).to_string() {
+                    println!("{} is in chat room", resp.name);
                     self.connected.insert(msg.source.to_string(), resp.name);
                 }
             } else if let Ok(resp) = serde_json::from_slice::<SayHello>(&msg.data) {
